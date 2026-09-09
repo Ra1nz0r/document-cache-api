@@ -2,17 +2,23 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"document-cache-api/internal/config"
 	"document-cache-api/internal/database/sqlc"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -24,7 +30,8 @@ var (
 	ErrInvalidPassword = errors.New(
 		"password must contain at least 8 characters, uppercase and lowercase letters, a digit and a special character; maximum 72 bytes",
 	)
-	ErrLoginTaken = errors.New("login is already taken")
+	ErrLoginTaken         = errors.New("login is already taken")
+	ErrInvalidCredentials = errors.New("invalid login or password")
 )
 
 // loginPattern разрешает только латинские буквы и цифры.
@@ -135,4 +142,60 @@ func validPassword(password string) bool {
 	}
 
 	return upper && lower && digit && special
+}
+
+// Login проверяет логин и пароль, создаёт сессию и возвращает token.
+func (s *AuthService) Login(
+	ctx context.Context,
+	login string,
+	password string,
+) (string, error) {
+	if login == "" || password == "" || len(password) > 72 {
+		return "", ErrInvalidCredentials
+	}
+
+	user, err := s.queries.GetUserByLogin(ctx, login)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrInvalidCredentials
+		}
+
+		return "", fmt.Errorf("get user by login: %w", err)
+	}
+
+	if err := bcrypt.CompareHashAndPassword(
+		[]byte(user.PasswordHash),
+		[]byte(password),
+	); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return "", ErrInvalidCredentials
+		}
+
+		return "", fmt.Errorf("compare password hash: %w", err)
+	}
+
+	// Генерируем 32 случайных байта и представляем их строкой из 64 hex-символов.
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", fmt.Errorf("generate session token: %w", err)
+	}
+
+	token := hex.EncodeToString(tokenBytes)
+
+	// Хешируем именно строку, которую получит клиент.
+	tokenHash := sha256.Sum256([]byte(token))
+
+	err = s.queries.CreateSession(ctx, sqlc.CreateSessionParams{
+		TokenHash: tokenHash[:],
+		UserID:    user.ID,
+		ExpiresAt: pgtype.Timestamptz{
+			Time:  time.Now().UTC().Add(s.cfg.SessionTTL),
+			Valid: true,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("create session: %w", err)
+	}
+
+	return token, nil
 }

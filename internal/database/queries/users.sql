@@ -8,3 +8,8 @@ VALUES (
     sqlc.arg(password_hash)
 )
 RETURNING id, login, created_at;
+
+-- name: GetUserByLogin :one
+SELECT id, login, password_hash
+FROM users
+WHERE login = sqlc.arg(login);

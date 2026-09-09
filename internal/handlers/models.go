@@ -49,3 +49,12 @@ type APIError struct {
 	// Text — текстовое описание ошибки для клиента.
 	Text string `json:"text"`
 }
+
+type AuthRequest struct {
+	Login string
+	Pswd  string
+}
+
+type AuthResponse struct {
+	Token string `json:"token"`
+}

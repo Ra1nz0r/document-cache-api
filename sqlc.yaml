@@ -5,7 +5,7 @@ sql:
   - engine: "postgresql"
     queries:
       - "./internal/database/queries/users.sql"
-
+      - "./internal/database/queries/sessions.sql"
     schema:
       - "./internal/database/schema.sql"
     gen:

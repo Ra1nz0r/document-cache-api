@@ -40,3 +40,22 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateU
 	err := row.Scan(&i.ID, &i.Login, &i.CreatedAt)
 	return i, err
 }
+
+const getUserByLogin = `-- name: GetUserByLogin :one
+SELECT id, login, password_hash
+FROM users
+WHERE login = $1
+`
+
+type GetUserByLoginRow struct {
+	ID           pgtype.UUID `json:"id"`
+	Login        string      `json:"login"`
+	PasswordHash string      `json:"password_hash"`
+}
+
+func (q *Queries) GetUserByLogin(ctx context.Context, login string) (GetUserByLoginRow, error) {
+	row := q.db.QueryRow(ctx, getUserByLogin, login)
+	var i GetUserByLoginRow
+	err := row.Scan(&i.ID, &i.Login, &i.PasswordHash)
+	return i, err
+}

@@ -83,6 +83,52 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+
+	if err := r.ParseForm(); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid authentication form")
+		return
+	}
+
+	req := AuthRequest{
+		Login: r.PostForm.Get("login"),
+		Pswd:  r.PostForm.Get("pswd"),
+	}
+
+	if req.Login == "" || req.Pswd == "" {
+		writeError(w, http.StatusBadRequest, "login and pswd are required")
+		return
+	}
+
+	token, err := h.auth.Login(r.Context(), req.Login, req.Pswd)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidCredentials) {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		log.Error().
+			Err(err).
+			Msg("failed to authenticate user")
+
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"internal server error",
+		)
+		return
+	}
+
+	w.Header().Set("Cache-Control", "no-store")
+
+	writeJSON(w, http.StatusOK, APIResponse{
+		Response: AuthResponse{
+			Token: token,
+		},
+	})
+}
+
 // writeError формирует единый JSON-ответ для HTTP-ошибок.
 func writeError(w http.ResponseWriter, status int, text string) {
 	writeJSON(w, status, APIResponse{

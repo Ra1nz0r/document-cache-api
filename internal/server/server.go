@@ -127,4 +127,5 @@ func newHTTPServer(cfg *config.Config, handler http.Handler) *http.Server {
 // registerRoutes регистрирует маршруты HTTP API.
 func registerRoutes(mux *http.ServeMux, h *handlers.Handler) {
 	mux.HandleFunc("POST /api/register", h.Register)
+	mux.HandleFunc("POST /api/auth", h.Auth)
 }
