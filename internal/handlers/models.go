@@ -50,11 +50,13 @@ type APIError struct {
 	Text string `json:"text"`
 }
 
+// AuthRequest
 type AuthRequest struct {
 	Login string
 	Pswd  string
 }
 
+// AuthResponse
 type AuthResponse struct {
 	Token string `json:"token"`
 }

@@ -83,9 +83,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Auth обрабатывает аутентификацию пользователя и создаёт новую сессию.
 func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
+	// Для формы с логином и паролем большого request body не требуется.
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 
+	// По ТЗ данные авторизации передаются как form-параметры.
 	if err := r.ParseForm(); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid authentication form")
 		return
@@ -96,18 +99,24 @@ func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
 		Pswd:  r.PostForm.Get("pswd"),
 	}
 
+	// Оба параметра обязательны для выполнения аутентификации.
 	if req.Login == "" || req.Pswd == "" {
 		writeError(w, http.StatusBadRequest, "login and pswd are required")
 		return
 	}
 
+	// Проверку учётных данных и создание сессии оставляем service-слою.
+	// Handler работает только с HTTP-запросом и преобразует результат в ответ API.
 	token, err := h.auth.Login(r.Context(), req.Login, req.Pswd)
 	if err != nil {
+		// Неверную пару login/password не отличаем для клиента,
+		// в обоих случаях возвращается одна ошибка авторизации.
 		if errors.Is(err, service.ErrInvalidCredentials) {
 			writeError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
 
+		// Детали внутренней ошибки сохраняем только в логах.
 		log.Error().
 			Err(err).
 			Msg("failed to authenticate user")
@@ -120,8 +129,10 @@ func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ответ содержит токен авторизации, поэтому запрещаем его кеширование.
 	w.Header().Set("Cache-Control", "no-store")
 
+	// По ТЗ успешная аутентификация возвращает токен в поле response.
 	writeJSON(w, http.StatusOK, APIResponse{
 		Response: AuthResponse{
 			Token: token,
@@ -129,6 +140,7 @@ func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Logout
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	// По ТЗ токен передаётся в пути /api/auth/{token}.
 	token := r.PathValue("token")
