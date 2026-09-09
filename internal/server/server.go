@@ -4,7 +4,10 @@ import (
 	"context"
 	"document-cache-api/internal/config"
 	"document-cache-api/internal/database"
+	"document-cache-api/internal/database/sqlc"
+	"document-cache-api/internal/handlers"
 	"document-cache-api/internal/logs"
+	"document-cache-api/internal/service"
 	"errors"
 	"fmt"
 	"net/http"
@@ -44,9 +47,14 @@ func Run() error {
 
 	log.Info().Msg("connected to PostgreSQL")
 
+	queries := sqlc.New(pgxPool)
+
+	authService := service.NewAuthService(queries, cfg.Auth)
+	h := handlers.New(authService)
+
 	// Создаём mux и регистрируем HTTP-маршруты приложения.
 	mux := http.NewServeMux()
-	registerRoutes(mux)
+	registerRoutes(mux, h)
 
 	// Создаём HTTP-сервер с настройками из конфигурации.
 	srv := newHTTPServer(cfg, mux)
@@ -117,6 +125,6 @@ func newHTTPServer(cfg *config.Config, handler http.Handler) *http.Server {
 }
 
 // registerRoutes регистрирует маршруты HTTP API.
-func registerRoutes(mux *http.ServeMux) {
-	// Добавим маршруты по мере реализации обработчиков.
+func registerRoutes(mux *http.ServeMux, h *handlers.Handler) {
+	mux.HandleFunc("POST /api/register", h.Register)
 }
