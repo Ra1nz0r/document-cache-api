@@ -287,7 +287,7 @@ func hashSessionToken(token string) ([]byte, error) {
 		return nil, ErrInvalidSession
 	}
 
-	// Повторяем то же преобразование, которое используется в Login:
+	// Повторяем то же преобразование, которое используется в Login.
 	// SHA-256 считается от исходной 64-символьной строки токена.
 	hash := sha256.Sum256([]byte(token))
 	return hash[:], nil
