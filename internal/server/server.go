@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"document-cache-api/internal/config"
+	"document-cache-api/internal/database"
 	"document-cache-api/internal/logs"
 	"errors"
 	"fmt"
@@ -31,6 +32,17 @@ func Run() error {
 		syscall.SIGTERM,
 	)
 	defer stop()
+
+	// Инициализируем подключение к базе PostgreSQL.
+	log.Info().Msg("connecting to PostgreSQL")
+
+	pgxPool, err := database.ConnectToDatabase(ctx, cfg.Database.DSN)
+	if err != nil {
+		return fmt.Errorf("connect to database: %w", err)
+	}
+	defer pgxPool.Close()
+
+	log.Info().Msg("connected to PostgreSQL")
 
 	// Создаём mux и регистрируем HTTP-маршруты приложения.
 	mux := http.NewServeMux()
