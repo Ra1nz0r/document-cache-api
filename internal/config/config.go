@@ -191,6 +191,7 @@ func setDefaults(cfg *Config) {
 	}
 }
 
+// validate валидирует необходимые значения.
 func validate(cfg *Config) error {
 	if strings.TrimSpace(cfg.Database.DSN) == "" {
 		return errors.New("database.dsn is required")
