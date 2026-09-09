@@ -128,4 +128,5 @@ func newHTTPServer(cfg *config.Config, handler http.Handler) *http.Server {
 func registerRoutes(mux *http.ServeMux, h *handlers.Handler) {
 	mux.HandleFunc("POST /api/register", h.Register)
 	mux.HandleFunc("POST /api/auth", h.Auth)
+	mux.HandleFunc("DELETE /api/auth/{token}", h.Logout)
 }

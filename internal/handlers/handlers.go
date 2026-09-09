@@ -129,6 +129,42 @@ func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	// По ТЗ токен передаётся в пути /api/auth/{token}.
+	token := r.PathValue("token")
+
+	if err := h.auth.Logout(r.Context(), token); err != nil {
+		if errors.Is(err, service.ErrInvalidSession) {
+			writeError(
+				w,
+				http.StatusBadRequest,
+				"invalid token format",
+			)
+			return
+		}
+
+		log.Error().
+			Err(err).
+			Msg("failed to logout")
+
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"internal server error",
+		)
+		return
+	}
+
+	w.Header().Set("Cache-Control", "no-store")
+
+	// По ТЗ ключом в response служит переданный токен.
+	writeJSON(w, http.StatusOK, APIResponse{
+		Response: map[string]bool{
+			token: true,
+		},
+	})
+}
+
 // writeError формирует единый JSON-ответ для HTTP-ошибок.
 func writeError(w http.ResponseWriter, status int, text string) {
 	writeJSON(w, status, APIResponse{

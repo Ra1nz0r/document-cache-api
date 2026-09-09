@@ -32,6 +32,7 @@ var (
 	)
 	ErrLoginTaken         = errors.New("login is already taken")
 	ErrInvalidCredentials = errors.New("invalid login or password")
+	ErrInvalidSession     = errors.New("invalid or expired session")
 )
 
 // loginPattern разрешает только латинские буквы и цифры.
@@ -198,4 +199,65 @@ func (s *AuthService) Login(
 	}
 
 	return token, nil
+}
+
+// SessionUser содержит данные пользователя, прошедшего проверку сессии.
+type SessionUser struct {
+	ID    pgtype.UUID
+	Login string
+}
+
+// Authenticate определяет пользователя по действующему session token.
+func (s *AuthService) Authenticate(
+	ctx context.Context,
+	token string,
+) (SessionUser, error) {
+	tokenHash, err := hashSessionToken(token)
+	if err != nil {
+		return SessionUser{}, err
+	}
+
+	user, err := s.queries.GetSessionUser(ctx, tokenHash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SessionUser{}, ErrInvalidSession
+		}
+
+		return SessionUser{}, fmt.Errorf("get session user: %w", err)
+	}
+
+	return SessionUser{
+		ID:    user.ID,
+		Login: user.Login,
+	}, nil
+}
+
+// Logout удаляет сессию. Повторное удаление считается успешным.
+func (s *AuthService) Logout(ctx context.Context, token string) error {
+	tokenHash, err := hashSessionToken(token)
+	if err != nil {
+		return err
+	}
+
+	if err := s.queries.DeleteSession(ctx, tokenHash); err != nil {
+		return fmt.Errorf("delete session: %w", err)
+	}
+
+	return nil
+}
+
+// hashSessionToken проверяет формат токена и вычисляет его SHA-256-хеш.
+func hashSessionToken(token string) ([]byte, error) {
+	// Login выдаёт 32 случайных байта в виде 64 hex-символов.
+	if len(token) != 64 {
+		return nil, ErrInvalidSession
+	}
+
+	if _, err := hex.DecodeString(token); err != nil {
+		return nil, ErrInvalidSession
+	}
+
+	// Как и при Login, хешируем исходную строку токена.
+	hash := sha256.Sum256([]byte(token))
+	return hash[:], nil
 }
