@@ -13,3 +13,8 @@ RETURNING id, login, created_at;
 SELECT id, login, password_hash
 FROM users
 WHERE login = sqlc.arg(login);
+
+-- name: GetUsersByLogins :many
+SELECT id, login
+FROM users
+WHERE login = ANY(sqlc.arg(logins)::text[]);

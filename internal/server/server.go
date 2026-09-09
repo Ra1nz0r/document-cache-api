@@ -8,6 +8,7 @@ import (
 	"document-cache-api/internal/handlers"
 	"document-cache-api/internal/logs"
 	"document-cache-api/internal/service"
+	"document-cache-api/internal/storage"
 	"errors"
 	"fmt"
 	"net/http"
@@ -49,8 +50,23 @@ func Run() error {
 
 	queries := sqlc.New(pgxPool)
 
+	fileStorage, err := storage.NewFileStorage(cfg.Storage.Dir)
+	if err != nil {
+		return fmt.Errorf("initialize file storage: %w", err)
+	}
+
 	authService := service.NewAuthService(queries, cfg.Auth)
-	h := handlers.New(authService)
+	documentService := service.NewDocumentService(
+		pgxPool,
+		queries,
+		fileStorage,
+	)
+
+	h := handlers.New(
+		authService,
+		documentService,
+		cfg.Storage.MaxUploadSize,
+	)
 
 	// Создаём mux и регистрируем HTTP-маршруты приложения.
 	mux := http.NewServeMux()
@@ -129,4 +145,5 @@ func registerRoutes(mux *http.ServeMux, h *handlers.Handler) {
 	mux.HandleFunc("POST /api/register", h.Register)
 	mux.HandleFunc("POST /api/auth", h.Auth)
 	mux.HandleFunc("DELETE /api/auth/{token}", h.Logout)
+	mux.HandleFunc("POST /api/docs", h.UploadDocument)
 }

@@ -11,12 +11,20 @@ import (
 )
 
 type Handler struct {
-	auth *service.AuthService // сервис с логикой регистрации и проверки пользователя
+	auth          *service.AuthService
+	documents     *service.DocumentService
+	maxUploadSize int64
 }
 
-func New(auth *service.AuthService) *Handler {
+func New(
+	auth *service.AuthService,
+	documents *service.DocumentService,
+	maxUploadSize int64,
+) *Handler {
 	return &Handler{
-		auth: auth,
+		auth:          auth,
+		documents:     documents,
+		maxUploadSize: maxUploadSize,
 	}
 }
 

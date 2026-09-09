@@ -1,5 +1,7 @@
 package handlers
 
+import "encoding/json"
+
 // RegisterRequest содержит данные формы для регистрации нового пользователя.
 // Поля соответствуют входным параметрам POST /api/register из ТЗ.
 type RegisterRequest struct {
@@ -66,4 +68,20 @@ type AuthResponse struct {
 	// Token — токен созданной сессии, который используется
 	// для последующих авторизованных запросов.
 	Token string `json:"token"`
+}
+
+// UploadDocumentMeta описывает JSON из multipart-поля meta.
+type UploadDocumentMeta struct {
+	Name   string   `json:"name"`
+	File   bool     `json:"file"`
+	Public bool     `json:"public"`
+	Token  string   `json:"token"`
+	MIME   string   `json:"mime"`
+	Grant  []string `json:"grant"`
+}
+
+// UploadDocumentResponse соответствует ответу загрузки из ТЗ.
+type UploadDocumentResponse struct {
+	JSON json.RawMessage `json:"json,omitempty"`
+	File string          `json:"file,omitempty"`
 }

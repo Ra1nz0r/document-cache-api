@@ -59,3 +59,34 @@ func (q *Queries) GetUserByLogin(ctx context.Context, login string) (GetUserByLo
 	err := row.Scan(&i.ID, &i.Login, &i.PasswordHash)
 	return i, err
 }
+
+const getUsersByLogins = `-- name: GetUsersByLogins :many
+SELECT id, login
+FROM users
+WHERE login = ANY($1::text[])
+`
+
+type GetUsersByLoginsRow struct {
+	ID    pgtype.UUID `json:"id"`
+	Login string      `json:"login"`
+}
+
+func (q *Queries) GetUsersByLogins(ctx context.Context, logins []string) ([]GetUsersByLoginsRow, error) {
+	rows, err := q.db.Query(ctx, getUsersByLogins, logins)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUsersByLoginsRow
+	for rows.Next() {
+		var i GetUsersByLoginsRow
+		if err := rows.Scan(&i.ID, &i.Login); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
