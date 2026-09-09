@@ -88,7 +88,7 @@ func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
 	// Для формы с логином и паролем большого request body не требуется.
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 
-	// По ТЗ данные авторизации передаются как form-параметры.
+	// Данные авторизации передаются как form-параметры.
 	if err := r.ParseForm(); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid authentication form")
 		return
@@ -132,7 +132,7 @@ func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
 	// Ответ содержит токен авторизации, поэтому запрещаем его кеширование.
 	w.Header().Set("Cache-Control", "no-store")
 
-	// По ТЗ успешная аутентификация возвращает токен в поле response.
+	// Успешная аутентификация возвращает токен в поле response.
 	writeJSON(w, http.StatusOK, APIResponse{
 		Response: AuthResponse{
 			Token: token,
@@ -140,12 +140,14 @@ func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Logout
+// Logout завершает авторизованную сессию по токену из URL.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	// По ТЗ токен передаётся в пути /api/auth/{token}.
+	// Токен передаётся непосредственно в пути /api/auth/{token}.
 	token := r.PathValue("token")
 
+	// Service-слой проверяет токен и удаляет соответствующую сессию.
 	if err := h.auth.Logout(r.Context(), token); err != nil {
+		// Некорректный формат токена считаем ошибкой входного параметра.
 		if errors.Is(err, service.ErrInvalidSession) {
 			writeError(
 				w,
@@ -167,9 +169,10 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ответ связан с авторизационной сессией и не должен кешироваться.
 	w.Header().Set("Cache-Control", "no-store")
 
-	// По ТЗ ключом в response служит переданный токен.
+	// Ключом в response служит переданный токен, а true подтверждает успешное завершение сессии.
 	writeJSON(w, http.StatusOK, APIResponse{
 		Response: map[string]bool{
 			token: true,

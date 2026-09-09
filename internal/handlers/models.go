@@ -50,13 +50,20 @@ type APIError struct {
 	Text string `json:"text"`
 }
 
-// AuthRequest
+// AuthRequest содержит данные формы для аутентификации пользователя.
+// Поля соответствуют входным параметрам POST /api/auth из ТЗ.
 type AuthRequest struct {
+	// Login — логин пользователя, под которым выполняется аутентификация.
 	Login string
-	Pswd  string
+
+	// Pswd — пароль пользователя для проверки учётных данных.
+	Pswd string
 }
 
-// AuthResponse
+// AuthResponse описывает успешный ответ метода аутентификации.
+// После проверки логина и пароля API возвращает токен авторизованной сессии.
 type AuthResponse struct {
+	// Token — токен созданной сессии, который используется
+	// для последующих авторизованных запросов.
 	Token string `json:"token"`
 }
