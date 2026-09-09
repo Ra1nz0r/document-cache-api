@@ -1,0 +1,47 @@
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+log/
+logs/
+*.log
+*.log.gz
+
+# Env / local config
+.env
+.env.*
+!.env.example
+*_config.cfg
+*_config.env
+
+# Go build artifacts
+bin/
+build/
+dist/
+*.exe
+*.out
+*.test
+
+# Go test / coverage
+coverage.out
+coverage.html
+*.coverprofile
+
+# Local app data
+data/
+storage/
+uploads/
+tmp/
+temp/
+
+# Docker local volumes
+.docker/
+docker-data/
+postgres-data/
+
+# Bruno / API clients
+bruno/**/environments/
