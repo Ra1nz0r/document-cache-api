@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"document-cache-api/internal/cache"
 	"document-cache-api/internal/service"
 
 	"github.com/rs/zerolog/log"
@@ -14,17 +15,20 @@ type Handler struct {
 	auth          *service.AuthService
 	documents     *service.DocumentService
 	maxUploadSize int64
+	cache         *cache.Cache
 }
 
 func New(
 	auth *service.AuthService,
 	documents *service.DocumentService,
 	maxUploadSize int64,
+	responseCache *cache.Cache,
 ) *Handler {
 	return &Handler{
 		auth:          auth,
 		documents:     documents,
 		maxUploadSize: maxUploadSize,
+		cache:         responseCache,
 	}
 }
 

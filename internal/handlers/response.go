@@ -62,3 +62,17 @@ func writeErrorForRequest(
 		},
 	})
 }
+
+// MethodNotAllowed возвращает обработчик неподдерживаемых HTTP-методов.
+func MethodNotAllowed(allowed string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", allowed)
+
+		writeErrorForRequest(
+			w,
+			r,
+			http.StatusMethodNotAllowed,
+			"method not allowed",
+		)
+	}
+}

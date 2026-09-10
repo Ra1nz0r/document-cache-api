@@ -18,7 +18,7 @@
   caller = false
 
 [database]
-  dsn = "postgres://document_cache:document_cache@localhost:5432/document_cache?sslmode=disable"
+  dsn = "postgres://document_cache:document_cache@localhost:5433/document_cache?sslmode=disable"
 
 [auth]
   # Демонстрационный токен для локального тестирования регистрации.

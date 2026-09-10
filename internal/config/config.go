@@ -95,6 +95,9 @@ func Get() *Config {
 		}
 
 		setDefaults(instance)
+		if err := validate(instance); err != nil {
+			log.Fatalf("config.Get(): invalid configuration: %v", err)
+		}
 	})
 
 	return instance

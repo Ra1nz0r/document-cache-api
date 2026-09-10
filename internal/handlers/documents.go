@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
 
+	"document-cache-api/internal/cache"
 	"document-cache-api/internal/service"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
 )
 
@@ -17,11 +20,10 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 	// Ограничиваем размер всего запроса, включая meta, JSON и файл.
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadSize)
 
-	// До 1 МиБ файловых данных ParseMultipartForm хранит в памяти,
-	// остальное при необходимости записывает во временные файлы.
+	// До 1 МиБ файловых данных держим в памяти, остальное уйдёт во временные файлы.
 	err := r.ParseMultipartForm(1 << 20)
 
-	// Удаляем временные файлы, созданные при разборе multipart.
+	// Удаляем временные файлы после обработки запроса.
 	if r.MultipartForm != nil {
 		defer r.MultipartForm.RemoveAll()
 	}
@@ -37,7 +39,7 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 
 	form := r.MultipartForm
 
-	// meta должен содержать JSON с параметрами документа.
+	// meta содержит параметры загружаемого документа.
 	metaValues := form.Value["meta"]
 	if len(metaValues) != 1 {
 		writeError(w, http.StatusBadRequest, "exactly one meta field is required")
@@ -50,7 +52,7 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Все операции с документами требуют действующей сессии.
+	// Операции с документами доступны только с действующей сессией.
 	user, err := h.auth.Authenticate(r.Context(), meta.Token)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidSession) {
@@ -71,7 +73,7 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		Grant:  meta.Grant,
 	}
 
-	// Поле json опциональное, но если передано, должно содержать корректный JSON.
+	// json необязателен, но если передан, проверяем его формат.
 	jsonValues := form.Value["json"]
 	if len(jsonValues) > 1 {
 		writeError(w, http.StatusBadRequest, "only one json field is allowed")
@@ -89,7 +91,7 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 
 	fileHeaders := form.File["file"]
 
-	// Наличие multipart-поля file должно совпадать с meta.file.
+	// Наличие файла должно соответствовать флагу meta.file.
 	if meta.File {
 		if len(fileHeaders) != 1 {
 			writeError(w, http.StatusBadRequest, "exactly one file is required")
@@ -114,8 +116,12 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверку данных и сохранение документа выполняет service-слой.
-	if err := h.documents.Upload(r.Context(), user, input); err != nil {
+	err = h.documents.Upload(r.Context(), user, input)
+
+	// После изменения документов сбрасываем кеш списков.
+	h.cache.Invalidate("")
+
+	if err != nil {
 		if errors.Is(err, service.ErrInvalidDocument) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -141,7 +147,7 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 
 // ListDocuments возвращает список документов, доступных пользователю.
 func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
-	// ParseQuery позволяет отдельно обработать ошибку в query string.
+	// ParseQuery позволяет вернуть ошибку при некорректном query string.
 	params, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
 		writeErrorForRequest(
@@ -152,7 +158,7 @@ func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Токен для GET/HEAD передаётся через query-параметры.
+	// Токен авторизации передаётся в query-параметрах.
 	user, err := h.auth.Authenticate(r.Context(), params.Get("token"))
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidSession) {
@@ -173,7 +179,7 @@ func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Фильтр работает только при одновременно переданных key и value.
+	// key и value используются только вместе.
 	if params.Has("key") != params.Has("value") ||
 		(params.Has("key") && params.Get("key") == "") {
 		writeErrorForRequest(
@@ -197,6 +203,28 @@ func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
 			)
 			return
 		}
+	}
+
+	// Токен в ключ кеша не добавляем:
+	// разные сессии одного пользователя могут использовать один результат.
+	cacheParams := make(url.Values)
+
+	for _, name := range []string{"login", "key", "value", "limit"} {
+		if params.Has(name) {
+			cacheParams.Set(name, params.Get(name))
+		}
+	}
+
+	cacheKey := cache.Key{
+		UserID: hex.EncodeToString(user.ID.Bytes[:]),
+		Query:  cacheParams.Encode(),
+	}
+
+	// При попадании в кеш до БД уже не доходим.
+	cached, generation, hit := h.cache.Get(cacheKey)
+	if hit {
+		writeDocumentResponse(w, r, cached, true)
+		return
 	}
 
 	docs, err := h.documents.List(
@@ -248,11 +276,22 @@ func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSONForRequest(w, r, http.StatusOK, APIResponse{
+	// Готовим ответ один раз, чтобы его можно было положить в кеш и сразу отправить.
+	response, err := makeJSONResponse(APIResponse{
 		Data: ListDocumentsResponse{
 			Docs: items,
 		},
 	})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to encode document list")
+		writeErrorForRequest(
+			w, r, http.StatusInternalServerError, "internal server error",
+		)
+		return
+	}
+
+	h.cache.Set(cacheKey, response, generation)
+	writeDocumentResponse(w, r, response, false)
 }
 
 // GetDocument возвращает один документ по ID.
@@ -283,7 +322,29 @@ func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Service проверяет ID документа и доступ текущего пользователя.
+	var id pgtype.UUID
+
+	// Проверяем ID до формирования ключа кеша.
+	if err := id.Scan(r.PathValue("id")); err != nil || !id.Valid {
+		writeErrorForRequest(
+			w, r, http.StatusBadRequest, service.ErrInvalidDocumentID.Error(),
+		)
+		return
+	}
+
+	// Кеш разделён по пользователю, так как доступ к документу может отличаться.
+	cacheKey := cache.Key{
+		UserID:     hex.EncodeToString(viewer.ID.Bytes[:]),
+		DocumentID: hex.EncodeToString(id.Bytes[:]),
+	}
+
+	cached, generation, hit := h.cache.Get(cacheKey)
+	if hit {
+		writeDocumentResponse(w, r, cached, true)
+		return
+	}
+
+	// Проверку доступа и получение содержимого оставляем service-слою.
 	document, err := h.documents.Get(
 		r.Context(),
 		viewer,
@@ -316,30 +377,30 @@ func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// JSON-документ возвращаем через общую модель API.
-	if !document.IsFile {
-		writeJSONForRequest(w, r, http.StatusOK, APIResponse{
+	var response cache.Response
+
+	// Файл отдаём как есть, JSON заворачиваем в общую модель ответа.
+	if document.IsFile {
+		response = cache.Response{
+			ContentType: document.MIME,
+			Body:        string(document.Data),
+			NoSniff:     true,
+		}
+	} else {
+		response, err = makeJSONResponse(APIResponse{
 			Data: json.RawMessage(document.Data),
 		})
-		return
+		if err != nil {
+			log.Error().Err(err).Msg("failed to encode document")
+			writeErrorForRequest(
+				w, r, http.StatusInternalServerError, "internal server error",
+			)
+			return
+		}
 	}
 
-	// Для файла отдаём сохранённый MIME и само содержимое без JSON-обёртки.
-	w.Header().Set("Content-Type", document.MIME)
-	w.Header().Set("Content-Length", strconv.Itoa(len(document.Data)))
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-
-	w.WriteHeader(http.StatusOK)
-
-	// HEAD должен вернуть те же заголовки, но без содержимого файла.
-	if r.Method == http.MethodHead {
-		return
-	}
-
-	if _, err := w.Write(document.Data); err != nil {
-		log.Error().Err(err).Msg("failed to write document response")
-	}
+	h.cache.Set(cacheKey, response, generation)
+	writeDocumentResponse(w, r, response, false)
 }
 
 // DeleteDocument удаляет документ текущего пользователя.
@@ -375,11 +436,24 @@ func (h *Handler) DeleteDocument(
 		return
 	}
 
-	// ID документа берём из /api/docs/{id}.
 	documentID := r.PathValue("id")
 
-	// Удалять документ может только его владелец.
-	if err := h.documents.Delete(r.Context(), viewer, documentID); err != nil {
+	var id pgtype.UUID
+
+	// UUID нужен и для проверки ID, и для ключа кеша.
+	if err := id.Scan(documentID); err != nil || !id.Valid {
+		writeErrorForRequest(
+			w, r, http.StatusBadRequest, service.ErrInvalidDocumentID.Error(),
+		)
+		return
+	}
+
+	err = h.documents.Delete(r.Context(), viewer, documentID)
+
+	// Сбрасываем списки и кеш этого документа для всех пользователей.
+	h.cache.Invalidate(hex.EncodeToString(id.Bytes[:]))
+
+	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidDocumentID):
 			writeErrorForRequest(

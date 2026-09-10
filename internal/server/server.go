@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"document-cache-api/internal/cache"
 	"document-cache-api/internal/config"
 	"document-cache-api/internal/database"
 	"document-cache-api/internal/database/sqlc"
@@ -62,10 +63,16 @@ func Run() error {
 		fileStorage,
 	)
 
+	responseCache := cache.New(
+		cfg.Cache.MaxEntries,
+		cfg.Cache.MaxBytes,
+	)
+
 	h := handlers.New(
 		authService,
 		documentService,
 		cfg.Storage.MaxUploadSize,
+		responseCache,
 	)
 
 	// Создаём mux и регистрируем HTTP-маршруты приложения.
@@ -145,8 +152,31 @@ func registerRoutes(mux *http.ServeMux, h *handlers.Handler) {
 	mux.HandleFunc("POST /api/register", h.Register)
 	mux.HandleFunc("POST /api/auth", h.Auth)
 	mux.HandleFunc("DELETE /api/auth/{token}", h.Logout)
+
 	mux.HandleFunc("POST /api/docs", h.UploadDocument)
 	mux.HandleFunc("GET /api/docs", h.ListDocuments)
 	mux.HandleFunc("GET /api/docs/{id}", h.GetDocument)
 	mux.HandleFunc("DELETE /api/docs/{id}", h.DeleteDocument)
+
+	// Обработчики для остальных методов на известных путях.
+	mux.HandleFunc(
+		"/api/register",
+		handlers.MethodNotAllowed("POST"),
+	)
+	mux.HandleFunc(
+		"/api/auth",
+		handlers.MethodNotAllowed("POST"),
+	)
+	mux.HandleFunc(
+		"/api/auth/{token}",
+		handlers.MethodNotAllowed("DELETE"),
+	)
+	mux.HandleFunc(
+		"/api/docs",
+		handlers.MethodNotAllowed("GET, HEAD, POST"),
+	)
+	mux.HandleFunc(
+		"/api/docs/{id}",
+		handlers.MethodNotAllowed("GET, HEAD, DELETE"),
+	)
 }
