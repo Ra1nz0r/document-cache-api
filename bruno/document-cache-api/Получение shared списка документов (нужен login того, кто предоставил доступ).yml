@@ -1,0 +1,22 @@
+info:
+  name: Получение shared списка документов (нужен login того, кто предоставил доступ)
+  type: http
+  seq: 12
+
+http:
+  method: GET
+  url: "{{url}}:{{port}}/api/docs?token={{token}}&login=testuser3"
+  params:
+    - name: token
+      value: "{{token}}"
+      type: query
+    - name: login
+      value: testuser3
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

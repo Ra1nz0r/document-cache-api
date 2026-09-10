@@ -1,0 +1,19 @@
+info:
+  name: Удаление документа
+  type: http
+  seq: 9
+
+http:
+  method: DELETE
+  url: "{{url}}:{{port}}/api/docs/{{document_id}}?token={{token}}"
+  params:
+    - name: token
+      value: "{{token}}"
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
