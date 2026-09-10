@@ -30,3 +30,44 @@ VALUES (
     sqlc.arg(document_id),
     sqlc.arg(user_id)
 );
+
+-- name: ListDocuments :many
+SELECT
+    d.id::text AS id,
+    d.name,
+    d.mime,
+    d.is_file,
+    d.is_public,
+    d.created_at,
+    ARRAY(
+        SELECT granted_user.login
+        FROM document_grants AS dg
+        JOIN users AS granted_user ON granted_user.id = dg.user_id
+        WHERE dg.document_id = d.id
+        ORDER BY granted_user.login
+    )::text[] AS grants
+FROM documents AS d
+JOIN users AS owner_user ON owner_user.id = d.owner_id
+WHERE owner_user.login = sqlc.arg(owner_login)::text
+  AND (
+      d.owner_id = sqlc.arg(viewer_id)::uuid
+      OR d.is_public
+      OR EXISTS (
+          SELECT 1
+          FROM document_grants AS access_grant
+          WHERE access_grant.document_id = d.id
+            AND access_grant.user_id = sqlc.arg(viewer_id)::uuid
+      )
+  )
+  AND (
+      sqlc.arg(filter_key)::text = ''
+      OR CASE sqlc.arg(filter_key)::text
+          WHEN 'id' THEN d.id::text
+          WHEN 'name' THEN d.name
+          WHEN 'mime' THEN d.mime
+          WHEN 'file' THEN d.is_file::text
+          WHEN 'public' THEN d.is_public::text
+      END = sqlc.arg(filter_value)::text
+  )
+ORDER BY d.name ASC, d.created_at ASC, d.id ASC
+LIMIT sqlc.arg(result_limit)::integer;

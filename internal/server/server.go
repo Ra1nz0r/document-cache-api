@@ -75,7 +75,7 @@ func Run() error {
 	// Создаём HTTP-сервер с настройками из конфигурации.
 	srv := newHTTPServer(cfg, mux)
 
-	// Канал нужен, чтобы получить ошибку из ListenAndServe, который запускается в отдельной goroutine.
+	// Делаем канал для получения ошибки из ListenAndServe.
 	serverErrCh := make(chan error, 1)
 
 	go func() {
@@ -146,4 +146,5 @@ func registerRoutes(mux *http.ServeMux, h *handlers.Handler) {
 	mux.HandleFunc("POST /api/auth", h.Auth)
 	mux.HandleFunc("DELETE /api/auth/{token}", h.Logout)
 	mux.HandleFunc("POST /api/docs", h.UploadDocument)
+	mux.HandleFunc("GET /api/docs", h.ListDocuments)
 }

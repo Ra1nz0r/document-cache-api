@@ -4,19 +4,24 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"document-cache-api/internal/service"
 
 	"github.com/rs/zerolog/log"
 )
 
+// UploadDocument загружает новый документ.
 func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
-	// Ограничиваем весь запрос, включая meta, JSON и файл.
+	// Ограничиваем размер всего запроса, включая meta, JSON и файл.
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadSize)
 
-	// Файловые данные свыше 1 МиБ могут размещаться во временных файлах.
+	// До 1 МиБ файловых данных ParseMultipartForm хранит в памяти,
+	// остальное при необходимости записывает во временные файлы.
 	err := r.ParseMultipartForm(1 << 20)
 
+	// Удаляем временные файлы, созданные при разборе multipart.
 	if r.MultipartForm != nil {
 		defer r.MultipartForm.RemoveAll()
 	}
@@ -32,6 +37,7 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 
 	form := r.MultipartForm
 
+	// meta должен содержать JSON с параметрами документа.
 	metaValues := form.Value["meta"]
 	if len(metaValues) != 1 {
 		writeError(w, http.StatusBadRequest, "exactly one meta field is required")
@@ -44,7 +50,7 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Здесь впервые используем проверку сессии перед операцией с документом.
+	// Все операции с документами требуют действующей сессии.
 	user, err := h.auth.Authenticate(r.Context(), meta.Token)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidSession) {
@@ -65,6 +71,7 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		Grant:  meta.Grant,
 	}
 
+	// Поле json опциональное, но если передано, должно содержать корректный JSON.
 	jsonValues := form.Value["json"]
 	if len(jsonValues) > 1 {
 		writeError(w, http.StatusBadRequest, "only one json field is allowed")
@@ -82,6 +89,7 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 
 	fileHeaders := form.File["file"]
 
+	// Наличие multipart-поля file должно совпадать с meta.file.
 	if meta.File {
 		if len(fileHeaders) != 1 {
 			writeError(w, http.StatusBadRequest, "exactly one file is required")
@@ -106,6 +114,7 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Проверку данных и сохранение документа выполняет service-слой.
 	if err := h.documents.Upload(r.Context(), user, input); err != nil {
 		if errors.Is(err, service.ErrInvalidDocument) {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -127,5 +136,121 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, APIResponse{
 		Data: response,
+	})
+}
+
+// ListDocuments возвращает список документов, доступных пользователю.
+func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
+	// ParseQuery позволяет отдельно обработать ошибку в query string.
+	params, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeErrorForRequest(
+			w, r,
+			http.StatusBadRequest,
+			"invalid query parameters",
+		)
+		return
+	}
+
+	// Токен для GET/HEAD передаётся через query-параметры.
+	user, err := h.auth.Authenticate(r.Context(), params.Get("token"))
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidSession) {
+			writeErrorForRequest(
+				w, r,
+				http.StatusUnauthorized,
+				err.Error(),
+			)
+			return
+		}
+
+		log.Error().Err(err).Msg("failed to authenticate document list")
+		writeErrorForRequest(
+			w, r,
+			http.StatusInternalServerError,
+			"internal server error",
+		)
+		return
+	}
+
+	// Фильтр работает только при одновременно переданных key и value.
+	if params.Has("key") != params.Has("value") ||
+		(params.Has("key") && params.Get("key") == "") {
+		writeErrorForRequest(
+			w, r,
+			http.StatusBadRequest,
+			"key and value must be provided together; key must not be empty",
+		)
+		return
+	}
+
+	// Если limit не указан, используем значение по умолчанию.
+	limit := service.DefaultDocumentsLimit
+
+	if params.Has("limit") {
+		limit, err = strconv.Atoi(params.Get("limit"))
+		if err != nil {
+			writeErrorForRequest(
+				w, r,
+				http.StatusBadRequest,
+				"limit must be an integer",
+			)
+			return
+		}
+	}
+
+	docs, err := h.documents.List(
+		r.Context(),
+		user,
+		service.ListDocumentsInput{
+			Login: params.Get("login"),
+			Key:   params.Get("key"),
+			Value: params.Get("value"),
+			Limit: limit,
+		},
+	)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidDocumentFilter) {
+			writeErrorForRequest(
+				w, r,
+				http.StatusBadRequest,
+				err.Error(),
+			)
+			return
+		}
+
+		log.Error().Err(err).Msg("failed to list documents")
+		writeErrorForRequest(
+			w, r,
+			http.StatusInternalServerError,
+			"internal server error",
+		)
+		return
+	}
+
+	// Пустой список должен сериализоваться как [], а не null.
+	items := make([]DocumentListItem, 0, len(docs))
+
+	for _, doc := range docs {
+		grants := doc.Grants
+		if grants == nil {
+			grants = []string{}
+		}
+
+		items = append(items, DocumentListItem{
+			ID:      doc.ID,
+			Name:    doc.Name,
+			MIME:    doc.Mime,
+			File:    doc.IsFile,
+			Public:  doc.IsPublic,
+			Created: doc.CreatedAt.Time.UTC().Format("2006-01-02 15:04:05"),
+			Grant:   grants,
+		})
+	}
+
+	writeJSONForRequest(w, r, http.StatusOK, APIResponse{
+		Data: ListDocumentsResponse{
+			Docs: items,
+		},
 	})
 }

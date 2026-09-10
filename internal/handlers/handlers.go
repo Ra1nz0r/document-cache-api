@@ -30,12 +30,9 @@ func New(
 
 // Register обрабатывает HTTP-запрос на регистрацию нового пользователя.
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
-	// Ограничиваем размер тела запроса, чтобы не принимать
-	// слишком большие данные для небольшой формы регистрации.
+	// Ограничиваем размер тела запроса.
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 
-	// ParseForm разбирает application/x-www-form-urlencoded
-	// и сохраняет значения формы в r.PostForm.
 	if err := r.ParseForm(); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid registration form")
 		return
@@ -47,8 +44,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		Pswd:  r.PostForm.Get("pswd"),
 	}
 
-	// Вся основная логика регистрации находится в service-слое.
-	// Handler отвечает только за HTTP-ввод, вызов сервиса и формирование ответа.
+	// Проверяем входные данные и регистрируем пользователя, возвращаем логин.
 	login, err := h.auth.Register(
 		r.Context(),
 		req.Token,
@@ -67,8 +63,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 
 		default:
-			// Неизвестную внутреннюю ошибку логируем,
-			// но не возвращаем её детали клиенту.
+			// Неизвестную внутреннюю ошибку логируем, не возвращаем её детали клиенту.
 			log.Error().
 				Err(err).
 				Msg("failed to register user")
@@ -83,7 +78,6 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// При успешной регистрации возвращаем логин созданного пользователя.
 	writeJSON(w, http.StatusOK, APIResponse{
 		Response: RegisterResponse{
 			Login: login,
@@ -93,10 +87,9 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 // Auth обрабатывает аутентификацию пользователя и создаёт новую сессию.
 func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
-	// Для формы с логином и паролем большого request body не требуется.
+	// Для формы с логином и паролем большого тела запроса не требуется.
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 
-	// Данные авторизации передаются как form-параметры.
 	if err := r.ParseForm(); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid authentication form")
 		return
@@ -113,12 +106,10 @@ func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверку учётных данных и создание сессии оставляем service-слою.
-	// Handler работает только с HTTP-запросом и преобразует результат в ответ API.
+	// Проверяем логин и пароль, создаём сессию и получаем токен.
 	token, err := h.auth.Login(r.Context(), req.Login, req.Pswd)
 	if err != nil {
-		// Неверную пару login/password не отличаем для клиента,
-		// в обоих случаях возвращается одна ошибка авторизации.
+		// Для неправильного логина или пароля, возвращаем ошибку авторизации.
 		if errors.Is(err, service.ErrInvalidCredentials) {
 			writeError(w, http.StatusUnauthorized, err.Error())
 			return
@@ -137,10 +128,9 @@ func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ответ содержит токен авторизации, поэтому запрещаем его кеширование.
+	// Ответ содержит токен авторизации, запрещаем его кеширование.
 	w.Header().Set("Cache-Control", "no-store")
 
-	// Успешная аутентификация возвращает токен в поле response.
 	writeJSON(w, http.StatusOK, APIResponse{
 		Response: AuthResponse{
 			Token: token,
@@ -150,10 +140,10 @@ func (h *Handler) Auth(w http.ResponseWriter, r *http.Request) {
 
 // Logout завершает авторизованную сессию по токену из URL.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	// Токен передаётся непосредственно в пути /api/auth/{token}.
+	// Получаем токен из пути /api/auth/{token}.
 	token := r.PathValue("token")
 
-	// Service-слой проверяет токен и удаляет соответствующую сессию.
+	// Завершаем сессию по переданному токену.
 	if err := h.auth.Logout(r.Context(), token); err != nil {
 		// Некорректный формат токена считаем ошибкой входного параметра.
 		if errors.Is(err, service.ErrInvalidSession) {
@@ -177,10 +167,9 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ответ связан с авторизационной сессией и не должен кешироваться.
+	// Ответ связан с авторизационной сессией, не кешируем.
 	w.Header().Set("Cache-Control", "no-store")
 
-	// Ключом в response служит переданный токен, а true подтверждает успешное завершение сессии.
 	writeJSON(w, http.StatusOK, APIResponse{
 		Response: map[string]bool{
 			token: true,
@@ -203,8 +192,7 @@ func writeJSON(w http.ResponseWriter, status int, response APIResponse) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 
-	// На этом этапе HTTP-статус уже отправлен клиенту,
-	// поэтому ошибку сериализации остаётся только залогировать.
+	// HTTP-статус уже отправлен клиенту, только логируем ошибку.
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Error().
 			Err(err).

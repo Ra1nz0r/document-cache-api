@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,8 +19,17 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var ErrInvalidDocument = errors.New("invalid document")
+var (
+	ErrInvalidDocument       = errors.New("invalid document")
+	ErrInvalidDocumentFilter = errors.New("invalid document filter")
+)
 
+const (
+	DefaultDocumentsLimit = 100
+	MaxDocumentsLimit     = 1000
+)
+
+// UploadDocumentInput содержит данные для создания документа.
 type UploadDocumentInput struct {
 	Name   string
 	MIME   string
@@ -48,6 +58,7 @@ func NewDocumentService(
 	}
 }
 
+// Upload проверяет данные и сохраняет новый документ.
 func (s *DocumentService) Upload(
 	ctx context.Context,
 	owner SessionUser,
@@ -57,6 +68,7 @@ func (s *DocumentService) Upload(
 		return fmt.Errorf("%w: name is required", ErrInvalidDocument)
 	}
 
+	// Проверяем, что передан корректный MIME type.
 	mediaType, _, err := mime.ParseMediaType(input.MIME)
 	if err != nil || !strings.Contains(mediaType, "/") {
 		return fmt.Errorf("%w: invalid MIME type", ErrInvalidDocument)
@@ -66,6 +78,8 @@ func (s *DocumentService) Upload(
 		return fmt.Errorf("%w: invalid JSON", ErrInvalidDocument)
 	}
 
+	// Для файлового документа нужен файл.
+	// Для обычного документа нужен JSON и не должно быть файла.
 	if input.IsFile {
 		if input.File == nil {
 			return fmt.Errorf("%w: file is required", ErrInvalidDocument)
@@ -83,7 +97,7 @@ func (s *DocumentService) Upload(
 		}
 	}
 
-	// Убираем повторяющиеся логины.
+	// Убираем повторяющиеся логины из grant.
 	logins := make([]string, 0, len(input.Grant))
 	seen := make(map[string]struct{}, len(input.Grant))
 
@@ -96,7 +110,7 @@ func (s *DocumentService) Upload(
 		logins = append(logins, login)
 	}
 
-	// Все указанные получатели должны существовать.
+	// Нельзя выдать доступ пользователю, которого нет в БД.
 	grantUsers, err := s.queries.GetUsersByLogins(ctx, logins)
 	if err != nil {
 		return fmt.Errorf("get grant users: %w", err)
@@ -112,6 +126,7 @@ func (s *DocumentService) Upload(
 	var storageKey pgtype.Text
 	size := int64(len(input.JSON))
 
+	// Файл сохраняем отдельно, в БД будет лежать только ключ до него.
 	if input.IsFile {
 		key, fileSize, err := s.files.Save(input.File)
 		if err != nil {
@@ -125,7 +140,8 @@ func (s *DocumentService) Upload(
 		size = fileSize
 	}
 
-	// До попытки коммита при ошибке можно удалить записанный файл.
+	// Если ошибка произошла до Commit, удаляем уже сохранённый файл.
+	// После начала Commit его результат может быть неоднозначным, поэтому файл здесь уже не трогаем.
 	commitStarted := false
 
 	defer func() {
@@ -138,14 +154,15 @@ func (s *DocumentService) Upload(
 		}
 	}()
 
+	// Документ и его grants сохраняем в одной транзакции.
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin document transaction: %w", err)
 	}
 
 	defer func() {
-		// Для отката используем отдельный контекст:
-		// контекст HTTP-запроса к этому моменту мог быть отменён.
+		// HTTP-контекст к этому моменту уже может быть отменён,
+		// поэтому для rollback используем отдельный контекст.
 		rollbackCtx, cancel := context.WithTimeout(
 			context.Background(),
 			5*time.Second,
@@ -190,4 +207,94 @@ func (s *DocumentService) Upload(
 	}
 
 	return nil
+}
+
+// ListDocumentsInput содержит параметры получения списка документов.
+type ListDocumentsInput struct {
+	Login string
+	Key   string
+	Value string
+	Limit int
+}
+
+// List возвращает доступные пользователю документы выбранного владельца.
+func (s *DocumentService) List(
+	ctx context.Context,
+	viewer SessionUser,
+	input ListDocumentsInput,
+) ([]sqlc.ListDocumentsRow, error) {
+	// Если login не передан, показываем документы самого пользователя.
+	if input.Login == "" {
+		input.Login = viewer.Login
+	}
+
+	if input.Limit < 1 || input.Limit > MaxDocumentsLimit {
+		return nil, fmt.Errorf(
+			"%w: limit must be between 1 and %d",
+			ErrInvalidDocumentFilter,
+			MaxDocumentsLimit,
+		)
+	}
+
+	// Проверяем значение фильтра в зависимости от выбранного key.
+	switch input.Key {
+	case "":
+		if input.Value != "" {
+			return nil, fmt.Errorf(
+				"%w: value requires key",
+				ErrInvalidDocumentFilter,
+			)
+		}
+
+	case "id":
+		var id pgtype.UUID
+		if err := id.Scan(input.Value); err != nil || !id.Valid {
+			return nil, fmt.Errorf(
+				"%w: invalid document ID",
+				ErrInvalidDocumentFilter,
+			)
+		}
+
+		// Приводим UUID к строковому формату PostgreSQL.
+		value, err := id.Value()
+		if err != nil {
+			return nil, fmt.Errorf("format document ID: %w", err)
+		}
+		input.Value = value.(string)
+
+	case "name", "mime":
+		// Для строковых полей дополнительных преобразований не нужно.
+
+	case "file", "public":
+		// file и public принимают только boolean значения.
+		value, err := strconv.ParseBool(input.Value)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"%w: %s must be a boolean",
+				ErrInvalidDocumentFilter,
+				input.Key,
+			)
+		}
+
+		input.Value = strconv.FormatBool(value)
+
+	default:
+		return nil, fmt.Errorf(
+			"%w: unsupported key",
+			ErrInvalidDocumentFilter,
+		)
+	}
+
+	docs, err := s.queries.ListDocuments(ctx, sqlc.ListDocumentsParams{
+		OwnerLogin:  input.Login,
+		ViewerID:    viewer.ID,
+		FilterKey:   input.Key,
+		FilterValue: input.Value,
+		ResultLimit: int32(input.Limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list documents: %w", err)
+	}
+
+	return docs, nil
 }

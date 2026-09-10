@@ -82,3 +82,97 @@ func (q *Queries) CreateDocumentGrant(ctx context.Context, arg CreateDocumentGra
 	_, err := q.db.Exec(ctx, createDocumentGrant, arg.DocumentID, arg.UserID)
 	return err
 }
+
+const listDocuments = `-- name: ListDocuments :many
+SELECT
+    d.id::text AS id,
+    d.name,
+    d.mime,
+    d.is_file,
+    d.is_public,
+    d.created_at,
+    ARRAY(
+        SELECT granted_user.login
+        FROM document_grants AS dg
+        JOIN users AS granted_user ON granted_user.id = dg.user_id
+        WHERE dg.document_id = d.id
+        ORDER BY granted_user.login
+    )::text[] AS grants
+FROM documents AS d
+JOIN users AS owner_user ON owner_user.id = d.owner_id
+WHERE owner_user.login = $1::text
+  AND (
+      d.owner_id = $2::uuid
+      OR d.is_public
+      OR EXISTS (
+          SELECT 1
+          FROM document_grants AS access_grant
+          WHERE access_grant.document_id = d.id
+            AND access_grant.user_id = $2::uuid
+      )
+  )
+  AND (
+      $3::text = ''
+      OR CASE $3::text
+          WHEN 'id' THEN d.id::text
+          WHEN 'name' THEN d.name
+          WHEN 'mime' THEN d.mime
+          WHEN 'file' THEN d.is_file::text
+          WHEN 'public' THEN d.is_public::text
+      END = $4::text
+  )
+ORDER BY d.name ASC, d.created_at ASC, d.id ASC
+LIMIT $5::integer
+`
+
+type ListDocumentsParams struct {
+	OwnerLogin  string      `json:"owner_login"`
+	ViewerID    pgtype.UUID `json:"viewer_id"`
+	FilterKey   string      `json:"filter_key"`
+	FilterValue string      `json:"filter_value"`
+	ResultLimit int32       `json:"result_limit"`
+}
+
+type ListDocumentsRow struct {
+	ID        string             `json:"id"`
+	Name      string             `json:"name"`
+	Mime      string             `json:"mime"`
+	IsFile    bool               `json:"is_file"`
+	IsPublic  bool               `json:"is_public"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	Grants    []string           `json:"grants"`
+}
+
+func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([]ListDocumentsRow, error) {
+	rows, err := q.db.Query(ctx, listDocuments,
+		arg.OwnerLogin,
+		arg.ViewerID,
+		arg.FilterKey,
+		arg.FilterValue,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDocumentsRow
+	for rows.Next() {
+		var i ListDocumentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Mime,
+			&i.IsFile,
+			&i.IsPublic,
+			&i.CreatedAt,
+			&i.Grants,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

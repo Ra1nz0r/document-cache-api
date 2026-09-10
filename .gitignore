@@ -7,7 +7,6 @@
 
 # Logs
 log/
-logs/
 *.log
 *.log.gz
 
@@ -33,7 +32,6 @@ coverage.html
 
 # Local app data
 data/
-storage/
 uploads/
 tmp/
 temp/
