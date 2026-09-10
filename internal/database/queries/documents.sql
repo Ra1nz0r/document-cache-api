@@ -71,3 +71,23 @@ WHERE owner_user.login = sqlc.arg(owner_login)::text
   )
 ORDER BY d.name ASC, d.created_at ASC, d.id ASC
 LIMIT sqlc.arg(result_limit)::integer;
+
+-- name: GetDocument :one
+SELECT
+    d.id,
+    d.mime,
+    d.is_file,
+    d.json_data,
+    d.storage_key,
+    (
+        d.owner_id = sqlc.arg(viewer_id)::uuid
+        OR d.is_public
+        OR EXISTS (
+            SELECT 1
+            FROM document_grants dg
+            WHERE dg.document_id = d.id
+              AND dg.user_id = sqlc.arg(viewer_id)::uuid
+        )
+    )::boolean AS can_read
+FROM documents d
+WHERE d.id = sqlc.arg(document_id)::uuid;

@@ -83,6 +83,55 @@ func (q *Queries) CreateDocumentGrant(ctx context.Context, arg CreateDocumentGra
 	return err
 }
 
+const getDocument = `-- name: GetDocument :one
+SELECT
+    d.id,
+    d.mime,
+    d.is_file,
+    d.json_data,
+    d.storage_key,
+    (
+        d.owner_id = $1::uuid
+        OR d.is_public
+        OR EXISTS (
+            SELECT 1
+            FROM document_grants dg
+            WHERE dg.document_id = d.id
+              AND dg.user_id = $1::uuid
+        )
+    )::boolean AS can_read
+FROM documents d
+WHERE d.id = $2::uuid
+`
+
+type GetDocumentParams struct {
+	ViewerID   pgtype.UUID `json:"viewer_id"`
+	DocumentID pgtype.UUID `json:"document_id"`
+}
+
+type GetDocumentRow struct {
+	ID         pgtype.UUID `json:"id"`
+	Mime       string      `json:"mime"`
+	IsFile     bool        `json:"is_file"`
+	JsonData   []byte      `json:"json_data"`
+	StorageKey pgtype.Text `json:"storage_key"`
+	CanRead    bool        `json:"can_read"`
+}
+
+func (q *Queries) GetDocument(ctx context.Context, arg GetDocumentParams) (GetDocumentRow, error) {
+	row := q.db.QueryRow(ctx, getDocument, arg.ViewerID, arg.DocumentID)
+	var i GetDocumentRow
+	err := row.Scan(
+		&i.ID,
+		&i.Mime,
+		&i.IsFile,
+		&i.JsonData,
+		&i.StorageKey,
+		&i.CanRead,
+	)
+	return i, err
+}
+
 const listDocuments = `-- name: ListDocuments :many
 SELECT
     d.id::text AS id,

@@ -147,4 +147,5 @@ func registerRoutes(mux *http.ServeMux, h *handlers.Handler) {
 	mux.HandleFunc("DELETE /api/auth/{token}", h.Logout)
 	mux.HandleFunc("POST /api/docs", h.UploadDocument)
 	mux.HandleFunc("GET /api/docs", h.ListDocuments)
+	mux.HandleFunc("GET /api/docs/{id}", h.GetDocument)
 }

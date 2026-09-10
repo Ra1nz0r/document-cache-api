@@ -14,6 +14,7 @@ import (
 	"document-cache-api/internal/database/sqlc"
 	"document-cache-api/internal/storage"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
@@ -22,6 +23,9 @@ import (
 var (
 	ErrInvalidDocument       = errors.New("invalid document")
 	ErrInvalidDocumentFilter = errors.New("invalid document filter")
+	ErrInvalidDocumentID     = errors.New("invalid document id")
+	ErrDocumentNotFound      = errors.New("document not found")
+	ErrDocumentForbidden     = errors.New("document access denied")
 )
 
 const (
@@ -297,4 +301,68 @@ func (s *DocumentService) List(
 	}
 
 	return docs, nil
+}
+
+// DocumentContent содержит данные документа для выдачи клиенту.
+type DocumentContent struct {
+	MIME   string
+	IsFile bool
+	Data   []byte
+}
+
+// Get получает документ и проверяет доступ текущего пользователя.
+func (s *DocumentService) Get(
+	ctx context.Context,
+	viewer SessionUser,
+	documentID string,
+) (DocumentContent, error) {
+	var id pgtype.UUID
+
+	// Проверяем, что ID документа имеет корректный UUID-формат.
+	if err := id.Scan(documentID); err != nil || !id.Valid {
+		return DocumentContent{}, ErrInvalidDocumentID
+	}
+
+	document, err := s.queries.GetDocument(ctx, sqlc.GetDocumentParams{
+		DocumentID: id,
+		ViewerID:   viewer.ID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return DocumentContent{}, ErrDocumentNotFound
+		}
+
+		return DocumentContent{}, fmt.Errorf("get document: %w", err)
+	}
+
+	// CanRead учитывает владельца, public и выданные grant.
+	if !document.CanRead {
+		return DocumentContent{}, ErrDocumentForbidden
+	}
+
+	content := DocumentContent{
+		MIME:   document.Mime,
+		IsFile: document.IsFile,
+	}
+
+	// Для JSON-документа содержимое уже хранится в БД.
+	if !document.IsFile {
+		content.Data = document.JsonData
+		return content, nil
+	}
+
+	// Для файла в БД должен быть ключ до файла в storage.
+	if !document.StorageKey.Valid || document.StorageKey.String == "" {
+		return DocumentContent{}, fmt.Errorf(
+			"file document has no storage key",
+		)
+	}
+
+	data, err := s.files.Read(document.StorageKey.String)
+	if err != nil {
+		return DocumentContent{}, fmt.Errorf("read document content: %w", err)
+	}
+
+	content.Data = data
+	return content, nil
 }

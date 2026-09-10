@@ -66,3 +66,18 @@ func (s *FileStorage) Delete(key string) error {
 
 	return nil
 }
+
+// Read читает содержимое файла по внутреннему ключу хранения.
+func (s *FileStorage) Read(key string) ([]byte, error) {
+	if key == "" || key == "." || key == ".." ||
+		filepath.Base(key) != key {
+		return nil, fmt.Errorf("invalid storage key")
+	}
+
+	data, err := os.ReadFile(filepath.Join(s.dir, key))
+	if err != nil {
+		return nil, fmt.Errorf("read stored file: %w", err)
+	}
+
+	return data, nil
+}

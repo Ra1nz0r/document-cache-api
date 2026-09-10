@@ -254,3 +254,90 @@ func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 }
+
+// GetDocument возвращает один документ по ID.
+// Для HEAD отправляет только заголовки.
+func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
+	params, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeErrorForRequest(
+			w, r, http.StatusBadRequest, "invalid query parameters",
+		)
+		return
+	}
+
+	// Для получения документа нужна действующая сессия.
+	viewer, err := h.auth.Authenticate(r.Context(), params.Get("token"))
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidSession) {
+			writeErrorForRequest(
+				w, r, http.StatusUnauthorized, err.Error(),
+			)
+			return
+		}
+
+		log.Error().Err(err).Msg("failed to authenticate session")
+		writeErrorForRequest(
+			w, r, http.StatusInternalServerError, "internal server error",
+		)
+		return
+	}
+
+	// Service проверяет ID документа и доступ текущего пользователя.
+	document, err := h.documents.Get(
+		r.Context(),
+		viewer,
+		r.PathValue("id"),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidDocumentID):
+			writeErrorForRequest(
+				w, r, http.StatusBadRequest, err.Error(),
+			)
+
+		case errors.Is(err, service.ErrDocumentNotFound):
+			writeErrorForRequest(
+				w, r, http.StatusNotFound, err.Error(),
+			)
+
+		case errors.Is(err, service.ErrDocumentForbidden):
+			writeErrorForRequest(
+				w, r, http.StatusForbidden, err.Error(),
+			)
+
+		default:
+			log.Error().Err(err).Msg("failed to get document")
+			writeErrorForRequest(
+				w, r, http.StatusInternalServerError, "internal server error",
+			)
+		}
+
+		return
+	}
+
+	// JSON-документ возвращаем через общую модель API.
+	if !document.IsFile {
+		writeJSONForRequest(w, r, http.StatusOK, APIResponse{
+			Data: json.RawMessage(document.Data),
+		})
+		return
+	}
+
+	// Для файла отдаём сохранённый MIME и само содержимое без JSON-обёртки.
+	w.Header().Set("Content-Type", document.MIME)
+	w.Header().Set("Content-Length", strconv.Itoa(len(document.Data)))
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	w.WriteHeader(http.StatusOK)
+
+	// HEAD должен вернуть те же заголовки, но без содержимого файла.
+	if r.Method == http.MethodHead {
+		return
+	}
+
+	if _, err := w.Write(document.Data); err != nil {
+		log.Error().Err(err).Msg("failed to write document response")
+	}
+}
