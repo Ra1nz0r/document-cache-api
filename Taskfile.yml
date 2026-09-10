@@ -1,0 +1,112 @@
+---
+version: "3"
+
+vars:
+  APP_NAME: document-cache-api
+  APP_PACKAGE: ./cmd/app
+
+tasks:
+  default:
+    desc: "Показывает список команд."
+    cmds:
+      - task --list
+
+  run:
+    desc: "Запускает приложение локально; БД и миграции должны быть готовы."
+    cmds:
+      - go run {{.APP_PACKAGE}}
+
+  dev:
+    desc: "Поднимает PostgreSQL, применяет миграции и запускает локальный сервер."
+    cmds:
+      - task: db-up
+      - task: migrate-up
+      - task: run
+
+  build:
+    desc: "Собирает бинарник приложения в ./bin."
+    cmds:
+      - mkdir -p bin
+      - go build -o ./bin/{{.APP_NAME}} {{.APP_PACKAGE}}
+
+  fmt:
+    desc: "Форматирует Go-код."
+    cmds:
+      - gofmt -w ./cmd ./internal
+
+  vet:
+    desc: "Проверяет код через go vet."
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: "Запускает тесты с детектором гонок."
+    cmds:
+      - go test -race -count=1 ./...
+
+  test-cache:
+    desc: "Подробно запускает тесты кеша с детектором гонок."
+    cmds:
+      - go test -race -count=1 -v ./internal/cache
+
+  check:
+    desc: "Запускает проверку API через check.sh; порт 8080 должен быть свободен."
+    cmds:
+      - bash ./check.sh
+
+  verify:
+    desc: "Последовательно выполняет go vet, тесты и проверку API."
+    cmds:
+      - task: vet
+      - task: test
+      - task: check
+
+  generate:
+    desc: "Генерирует Go-код из SQL-запросов; требуется sqlc."
+    cmds:
+      - sqlc generate
+
+  db-up:
+    desc: "Запускает только PostgreSQL."
+    cmds:
+      - docker compose up -d postgres
+
+  migrate-up:
+    desc: "Применяет миграции базы данных."
+    cmds:
+      - docker compose run --rm migrate up
+
+  migrate-version:
+    desc: "Показывает текущую версию миграций."
+    cmds:
+      - docker compose run --rm migrate version
+
+  docker-build:
+    desc: "Собирает Docker-образ приложения."
+    cmds:
+      - docker compose --profile app build app
+
+  docker-up:
+    desc: "Собирает и запускает приложение, PostgreSQL и миграции в Docker."
+    cmds:
+      - docker compose --profile app up -d --build
+
+  docker-stop:
+    desc: "Останавливает только приложение в Docker, оставляя PostgreSQL работать."
+    cmds:
+      - docker compose stop app
+
+  docker-down:
+    desc: "Останавливает и удаляет контейнеры, сохраняя тома с данными."
+    cmds:
+      - docker compose --profile app down
+
+  docker-logs:
+    desc: "Показывает логи приложения в Docker."
+    cmds:
+      - docker compose logs -f app
+
+  docker-ps:
+    desc: "Показывает состояние контейнеров, включая завершившиеся миграции."
+    cmds:
+      - docker compose --profile app ps -a
