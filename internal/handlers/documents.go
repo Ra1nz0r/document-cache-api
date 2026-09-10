@@ -205,8 +205,8 @@ func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Токен в ключ кеша не добавляем:
-	// разные сессии одного пользователя могут использовать один результат.
+	// Токен в ключ кеша не добавляем.
+	// Разные сессии одного пользователя могут использовать один результат.
 	cacheParams := make(url.Values)
 
 	for _, name := range []string{"login", "key", "value", "limit"} {
