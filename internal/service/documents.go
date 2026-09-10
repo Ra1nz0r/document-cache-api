@@ -366,3 +366,67 @@ func (s *DocumentService) Get(
 	content.Data = data
 	return content, nil
 }
+
+// Delete удаляет документ владельца и связанный с ним файл.
+func (s *DocumentService) Delete(
+	ctx context.Context,
+	viewer SessionUser,
+	documentID string,
+) error {
+	var id pgtype.UUID
+
+	// Проверяем формат ID до обращения в БД.
+	if err := id.Scan(documentID); err != nil || !id.Valid {
+		return ErrInvalidDocumentID
+	}
+
+	storageKey, err := s.queries.DeleteDocument(
+		ctx,
+		sqlc.DeleteDocumentParams{
+			DocumentID: id,
+			OwnerID:    viewer.ID,
+		},
+	)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("delete document: %w", err)
+		}
+
+		// Если удалить не получилось, проверяем причину, документа нет или текущий пользователь не владелец.
+		_, lookupErr := s.queries.GetDocument(
+			ctx,
+			sqlc.GetDocumentParams{
+				DocumentID: id,
+				ViewerID:   viewer.ID,
+			},
+		)
+		if lookupErr != nil {
+			if errors.Is(lookupErr, pgx.ErrNoRows) {
+				return ErrDocumentNotFound
+			}
+
+			return fmt.Errorf(
+				"check document after unsuccessful delete: %w",
+				lookupErr,
+			)
+		}
+
+		return ErrDocumentForbidden
+	}
+
+	// Для JSON-документа удалять из файлового хранилища нечего.
+	if !storageKey.Valid {
+		return nil
+	}
+
+	if err := s.files.Delete(storageKey.String); err != nil {
+		// Запись в БД уже удалена, поэтому ошибку очистки файла только логируем.
+		log.Error().
+			Err(err).
+			Str("document_id", documentID).
+			Str("storage_key", storageKey.String).
+			Msg("failed to remove file after document deletion")
+	}
+
+	return nil
+}

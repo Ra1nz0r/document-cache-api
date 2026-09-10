@@ -83,6 +83,25 @@ func (q *Queries) CreateDocumentGrant(ctx context.Context, arg CreateDocumentGra
 	return err
 }
 
+const deleteDocument = `-- name: DeleteDocument :one
+DELETE FROM documents
+WHERE id = $1::uuid
+  AND owner_id = $2::uuid
+RETURNING storage_key
+`
+
+type DeleteDocumentParams struct {
+	DocumentID pgtype.UUID `json:"document_id"`
+	OwnerID    pgtype.UUID `json:"owner_id"`
+}
+
+func (q *Queries) DeleteDocument(ctx context.Context, arg DeleteDocumentParams) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, deleteDocument, arg.DocumentID, arg.OwnerID)
+	var storage_key pgtype.Text
+	err := row.Scan(&storage_key)
+	return storage_key, err
+}
+
 const getDocument = `-- name: GetDocument :one
 SELECT
     d.id,

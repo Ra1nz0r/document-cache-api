@@ -341,3 +341,74 @@ func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Msg("failed to write document response")
 	}
 }
+
+// DeleteDocument удаляет документ текущего пользователя.
+func (h *Handler) DeleteDocument(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	params, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		writeErrorForRequest(
+			w, r, http.StatusBadRequest, "invalid query parameters",
+		)
+		return
+	}
+
+	// Для удаления документа нужна действующая сессия.
+	viewer, err := h.auth.Authenticate(
+		r.Context(),
+		params.Get("token"),
+	)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidSession) {
+			writeErrorForRequest(
+				w, r, http.StatusUnauthorized, err.Error(),
+			)
+			return
+		}
+
+		log.Error().Err(err).Msg("failed to authenticate session")
+		writeErrorForRequest(
+			w, r, http.StatusInternalServerError, "internal server error",
+		)
+		return
+	}
+
+	// ID документа берём из /api/docs/{id}.
+	documentID := r.PathValue("id")
+
+	// Удалять документ может только его владелец.
+	if err := h.documents.Delete(r.Context(), viewer, documentID); err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidDocumentID):
+			writeErrorForRequest(
+				w, r, http.StatusBadRequest, err.Error(),
+			)
+
+		case errors.Is(err, service.ErrDocumentNotFound):
+			writeErrorForRequest(
+				w, r, http.StatusNotFound, err.Error(),
+			)
+
+		case errors.Is(err, service.ErrDocumentForbidden):
+			writeErrorForRequest(
+				w, r, http.StatusForbidden, err.Error(),
+			)
+
+		default:
+			log.Error().Err(err).Msg("failed to delete document")
+			writeErrorForRequest(
+				w, r, http.StatusInternalServerError, "internal server error",
+			)
+		}
+
+		return
+	}
+
+	writeJSONForRequest(w, r, http.StatusOK, APIResponse{
+		Response: map[string]bool{
+			documentID: true,
+		},
+	})
+}

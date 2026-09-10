@@ -91,3 +91,9 @@ SELECT
     )::boolean AS can_read
 FROM documents d
 WHERE d.id = sqlc.arg(document_id)::uuid;
+
+-- name: DeleteDocument :one
+DELETE FROM documents
+WHERE id = sqlc.arg(document_id)::uuid
+  AND owner_id = sqlc.arg(owner_id)::uuid
+RETURNING storage_key;
