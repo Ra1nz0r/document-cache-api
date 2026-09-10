@@ -8,6 +8,7 @@ import (
 	"document-cache-api/internal/database/sqlc"
 	"document-cache-api/internal/handlers"
 	"document-cache-api/internal/logs"
+	"document-cache-api/internal/middleware"
 	"document-cache-api/internal/service"
 	"document-cache-api/internal/storage"
 	"errors"
@@ -79,8 +80,8 @@ func Run() error {
 	mux := http.NewServeMux()
 	registerRoutes(mux, h)
 
-	// Создаём HTTP-сервер с настройками из конфигурации.
-	srv := newHTTPServer(cfg, mux)
+	// Подключаем логирование ко всем маршрутам.
+	srv := newHTTPServer(cfg, middleware.Logging(mux))
 
 	// Делаем канал для получения ошибки из ListenAndServe.
 	serverErrCh := make(chan error, 1)
