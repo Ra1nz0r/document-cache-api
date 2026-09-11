@@ -1,0 +1,29 @@
+info:
+  name: Загрузка файла доступного для других пользователей (PDF)
+  type: http
+  seq: 11
+
+http:
+  method: POST
+  url: "{{url}}:{{port}}/api/docs"
+  body:
+    type: multipart-form
+    data:
+      - name: meta
+        type: text
+        value: '{"name":"exp_shared_2_users.pdf","file":true,"public":false,"token":"{{token}}","mime":"application/pdf","grant":["testuser1", "testuser2"]}'
+      - name: json
+        type: text
+        value: ""
+        disabled: true
+      - name: file
+        type: file
+        value:
+          - D:\File for cash service\exp_shared_2_users.pdf
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

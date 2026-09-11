@@ -1,0 +1,19 @@
+info:
+  name: Заголовки списка документов
+  type: http
+  seq: 6
+
+http:
+  method: HEAD
+  url: "{{url}}:{{port}}/api/docs?token={{token}}"
+  params:
+    - name: token
+      value: "{{token}}"
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

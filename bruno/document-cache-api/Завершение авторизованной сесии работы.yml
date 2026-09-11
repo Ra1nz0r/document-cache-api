@@ -1,0 +1,15 @@
+info:
+  name: Завершение авторизованной сесии работы
+  type: http
+  seq: 10
+
+http:
+  method: DELETE
+  url: "{{url}}:{{port}}/api/auth/{{token}}"
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

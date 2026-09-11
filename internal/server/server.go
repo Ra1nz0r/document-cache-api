@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"document-cache-api/internal/cache"
 	"document-cache-api/internal/config"
 	"document-cache-api/internal/database"
 	"document-cache-api/internal/database/sqlc"
 	"document-cache-api/internal/handlers"
 	"document-cache-api/internal/logs"
+	"document-cache-api/internal/middleware"
 	"document-cache-api/internal/service"
+	"document-cache-api/internal/storage"
 	"errors"
 	"fmt"
 	"net/http"
@@ -49,17 +52,42 @@ func Run() error {
 
 	queries := sqlc.New(pgxPool)
 
+	// Создаём файловое хранилище для документов.
+	fileStorage, err := storage.NewFileStorage(cfg.Storage.Dir)
+	if err != nil {
+		return fmt.Errorf("initialize file storage: %w", err)
+	}
+	
+	// Создаём сервисы приложения.
 	authService := service.NewAuthService(queries, cfg.Auth)
-	h := handlers.New(authService)
+	documentService := service.NewDocumentService(
+		pgxPool,
+		queries,
+		fileStorage,
+	)
+
+	// Создаём кеш для готовых ответов.
+	responseCache := cache.New(
+		cfg.Cache.MaxEntries,
+		cfg.Cache.MaxBytes,
+	)
+
+	// Создаём обработчики HTTP-запросов.
+	h := handlers.New(
+		authService,
+		documentService,
+		cfg.Storage.MaxUploadSize,
+		responseCache,
+	)
 
 	// Создаём mux и регистрируем HTTP-маршруты приложения.
 	mux := http.NewServeMux()
 	registerRoutes(mux, h)
 
-	// Создаём HTTP-сервер с настройками из конфигурации.
-	srv := newHTTPServer(cfg, mux)
+	// Подключаем логирование ко всем маршрутам.
+	srv := newHTTPServer(cfg, middleware.Logging(mux))
 
-	// Канал нужен, чтобы получить ошибку из ListenAndServe, который запускается в отдельной goroutine.
+	// Делаем канал для получения ошибки из ListenAndServe.
 	serverErrCh := make(chan error, 1)
 
 	go func() {
@@ -129,4 +157,31 @@ func registerRoutes(mux *http.ServeMux, h *handlers.Handler) {
 	mux.HandleFunc("POST /api/register", h.Register)
 	mux.HandleFunc("POST /api/auth", h.Auth)
 	mux.HandleFunc("DELETE /api/auth/{token}", h.Logout)
+
+	mux.HandleFunc("POST /api/docs", h.UploadDocument)
+	mux.HandleFunc("GET /api/docs", h.ListDocuments)
+	mux.HandleFunc("GET /api/docs/{id}", h.GetDocument)
+	mux.HandleFunc("DELETE /api/docs/{id}", h.DeleteDocument)
+
+	// Обработчики для остальных методов на известных путях.
+	mux.HandleFunc(
+		"/api/register",
+		handlers.MethodNotAllowed("POST"),
+	)
+	mux.HandleFunc(
+		"/api/auth",
+		handlers.MethodNotAllowed("POST"),
+	)
+	mux.HandleFunc(
+		"/api/auth/{token}",
+		handlers.MethodNotAllowed("DELETE"),
+	)
+	mux.HandleFunc(
+		"/api/docs",
+		handlers.MethodNotAllowed("GET, HEAD, POST"),
+	)
+	mux.HandleFunc(
+		"/api/docs/{id}",
+		handlers.MethodNotAllowed("GET, HEAD, DELETE"),
+	)
 }

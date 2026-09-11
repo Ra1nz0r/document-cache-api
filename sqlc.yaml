@@ -6,6 +6,7 @@ sql:
     queries:
       - "./internal/database/queries/users.sql"
       - "./internal/database/queries/sessions.sql"
+      - "./internal/database/queries/documents.sql"
     schema:
       - "./internal/database/schema.sql"
     gen:

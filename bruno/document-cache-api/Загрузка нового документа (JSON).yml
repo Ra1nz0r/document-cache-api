@@ -1,0 +1,28 @@
+info:
+  name: Загрузка нового документа (JSON)
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "{{url}}:{{port}}/api/docs"
+  body:
+    type: multipart-form
+    data:
+      - name: meta
+        type: text
+        value: '{"name":"text.json","file":false,"public":false,"token":"{{token}}","mime":"application/json","grant":[]}'
+      - name: json
+        type: text
+        value: '{"title":"Заметка для теста","text":"Это JSON"}'
+      - name: file
+        type: text
+        value: ""
+        disabled: true
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

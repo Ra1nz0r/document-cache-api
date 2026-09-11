@@ -1,69 +1,72 @@
 package handlers
 
-// RegisterRequest содержит данные формы для регистрации нового пользователя.
-// Поля соответствуют входным параметрам POST /api/register из ТЗ.
+import "encoding/json"
+
+// RegisterRequest содержит входные параметры регистрации.
 type RegisterRequest struct {
-	// Token — фиксированный токен администратора.
-	// Его значение задаётся в конфиге приложения и проверяется при регистрации.
-	Token string
-
-	// Login — логин создаваемого пользователя.
-	// По ТЗ должен содержать минимум 8 символов, только латинские буквы и цифры.
-	Login string
-
-	// Pswd — пароль создаваемого пользователя.
-	// По ТЗ должен быть не короче 8 символов и содержать буквы
-	// разных регистров, цифру и хотя бы один специальный символ.
-	Pswd string
+	Token string // Токен приглашения
+	Login string // Логин нового пользователя
+	Pswd  string // Пароль нового пользователя
 }
 
-// RegisterResponse описывает успешный ответ метода регистрации.
-// После создания пользователя API возвращает его логин в поле response.
+// RegisterResponse содержит результат успешной регистрации.
 type RegisterResponse struct {
-	// Login — логин успешно созданного пользователя.
-	Login string `json:"login"`
+	Login string `json:"login"` // Логин нового пользователя
 }
 
-// APIResponse описывает общую модель ответа API из ТЗ.
-// В конкретном ответе присутствуют только заполненные поля.
+// APIResponse общая модель ответа.
+// Пустые error, response и data не попадают в JSON.
 type APIResponse struct {
-	// Error содержит описание ошибки.
-	// omitempty убирает поле из JSON, если ошибки нет и указатель равен nil.
-	Error *APIError `json:"error,omitempty"`
-
-	// Response используется для подтверждения выполненного действия.
-	// Тип any нужен, потому что разные методы возвращают здесь разные структуры.
-	Response any `json:"response,omitempty"`
-
-	// Data используется для возврата содержимого, например документа
-	// или списка документов. Формат данных зависит от конкретного метода.
-	Data any `json:"data,omitempty"`
+	Error    *APIError `json:"error,omitempty"`    // nil, если нет ошибки
+	Response any       `json:"response,omitempty"` // nil, если нет успешного ответа
+	Data     any       `json:"data,omitempty"`     // nil, если нет дополнительных данных
 }
 
-// APIError описывает ошибку в общей модели ответа API.
+// APIError содержит код и текст ошибки.
 type APIError struct {
-	// Code — числовой код ошибки.
-	// В текущей реализации сюда передаётся HTTP-статус ответа.
-	Code int `json:"code"`
-
-	// Text — текстовое описание ошибки для клиента.
-	Text string `json:"text"`
+	Code int    `json:"code"` // HTTP-код ошибки
+	Text string `json:"text"` // Читаемый текст ошибки
 }
 
-// AuthRequest содержит данные формы для аутентификации пользователя.
-// Поля соответствуют входным параметрам POST /api/auth из ТЗ.
+// AuthRequest содержит логин и пароль из формы авторизации.
 type AuthRequest struct {
-	// Login — логин пользователя, под которым выполняется аутентификация.
-	Login string
-
-	// Pswd — пароль пользователя для проверки учётных данных.
-	Pswd string
+	Login string // Логин пользователя
+	Pswd  string // Пароль пользователя
 }
 
-// AuthResponse описывает успешный ответ метода аутентификации.
-// После проверки логина и пароля API возвращает токен авторизованной сессии.
+// AuthResponse содержит токен новой сессии.
 type AuthResponse struct {
-	// Token — токен созданной сессии, который используется
-	// для последующих авторизованных запросов.
-	Token string `json:"token"`
+	Token string `json:"token"` // Токен авторизационной сессии
+}
+
+// UploadDocumentMeta описывает JSON из multipart-поля meta.
+type UploadDocumentMeta struct {
+	Name   string   `json:"name"`   // Читаемое имя документа
+	File   bool     `json:"file"`   // true, если документ содержит файл
+	Public bool     `json:"public"` // true, если документ публичный
+	Token  string   `json:"token"`  // Токен авторизационной сессии
+	MIME   string   `json:"mime"`   // MIME-тип документа, если file=true
+	Grant  []string `json:"grant"`  // Список логинов, которым разрешён доступ к документу
+}
+
+// UploadDocumentResponse содержит данные, возвращаемые после загрузки документа.
+type UploadDocumentResponse struct {
+	JSON json.RawMessage `json:"json,omitempty"` // JSON-ответ, если документ содержит JSON
+	File string          `json:"file,omitempty"` // URL для скачивания файла, если документ содержит файл
+}
+
+// DocumentListItem содержит метаданные документа для выдачи списка.
+type DocumentListItem struct {
+	ID      string   `json:"id"`      // Уникальный идентификатор документа
+	Name    string   `json:"name"`    // Читаемое имя документа
+	MIME    string   `json:"mime"`    // MIME-тип документа, если
+	File    bool     `json:"file"`    // true, если документ содержит файл
+	Public  bool     `json:"public"`  // true, если документ публичный
+	Created string   `json:"created"` // Дата и время создания документа в формате RFC3339
+	Grant   []string `json:"grant"`   // Список логинов, которым разрешён доступ к документу
+}
+
+// ListDocumentsResponse содержит список доступных документов.
+type ListDocumentsResponse struct {
+	Docs []DocumentListItem `json:"docs"` // Список документов, доступных пользователю
 }
