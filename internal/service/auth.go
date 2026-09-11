@@ -23,16 +23,16 @@ import (
 )
 
 var (
-	ErrInvalidAdminToken = errors.New("invalid admin token")
+	ErrInvalidAdminToken = errors.New("invalid admin token") // Регистрация доступна только с admin token из конфига.
 	ErrInvalidLogin      = errors.New(
 		"login must contain at least 8 characters: Latin letters and digits only",
-	)
+	) // Логин от 8 символов, только латинские буквы и цифры.
 	ErrInvalidPassword = errors.New(
 		"password must contain at least 8 characters, uppercase and lowercase letters, a digit and a special character; maximum 72 bytes",
-	)
-	ErrLoginTaken         = errors.New("login is already taken")
-	ErrInvalidCredentials = errors.New("invalid login or password")
-	ErrInvalidSession     = errors.New("invalid or expired session")
+	) // Пароль от 8 символов, минимум по одной букве в верхнем и нижнем регистре, цифра и спецсимвол; максимум 72 байта.
+	ErrLoginTaken         = errors.New("login is already taken")     // Попытка зарегистрировать уже существующий логин.
+	ErrInvalidCredentials = errors.New("invalid login or password")  // Ошибка при логине: неверный логин или пароль.
+	ErrInvalidSession     = errors.New("invalid or expired session") // Ошибка при аутентификации: неверный или просроченный token сессии.
 )
 
 // Логин от 8 символов, только латинские буквы и цифры.

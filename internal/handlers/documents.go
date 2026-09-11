@@ -209,6 +209,7 @@ func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
 	// Разные сессии одного пользователя могут использовать один результат.
 	cacheParams := make(url.Values)
 
+	// Кешируем только фильтры, которые влияют на результат.
 	for _, name := range []string{"login", "key", "value", "limit"} {
 		if params.Has(name) {
 			cacheParams.Set(name, params.Get(name))

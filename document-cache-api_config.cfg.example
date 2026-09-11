@@ -1,7 +1,3 @@
-# Настройки для локального запуска приложения.
-# PostgreSQL: пользователь document_cache, пароль document_cache, БД document_cache.
-# В Docker Compose замените localhost в DSN на имя сервиса PostgreSQL.
-
 [server]
   host = "0.0.0.0"
   port = 8080

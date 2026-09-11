@@ -21,11 +21,11 @@ import (
 )
 
 var (
-	ErrInvalidDocument       = errors.New("invalid document")
-	ErrInvalidDocumentFilter = errors.New("invalid document filter")
-	ErrInvalidDocumentID     = errors.New("invalid document id")
-	ErrDocumentNotFound      = errors.New("document not found")
-	ErrDocumentForbidden     = errors.New("document access denied")
+	ErrInvalidDocument       = errors.New("invalid document")        // Ошибка при создании документа: некорректные данные.
+	ErrInvalidDocumentFilter = errors.New("invalid document filter") // Ошибка при фильтрации документов: некорректные key/value.
+	ErrInvalidDocumentID     = errors.New("invalid document id")     // Ошибка при получении/удалении документа: некорректный UUID.
+	ErrDocumentNotFound      = errors.New("document not found")      // Ошибка при получении/удалении документа: документа нет в БД или у пользователя нет доступа.
+	ErrDocumentForbidden     = errors.New("document access denied")  // Ошибка при получении/удалении документа: у пользователя нет доступа к документу.
 )
 
 const (

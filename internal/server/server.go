@@ -52,11 +52,13 @@ func Run() error {
 
 	queries := sqlc.New(pgxPool)
 
+	// Создаём файловое хранилище для документов.
 	fileStorage, err := storage.NewFileStorage(cfg.Storage.Dir)
 	if err != nil {
 		return fmt.Errorf("initialize file storage: %w", err)
 	}
-
+	
+	// Создаём сервисы приложения.
 	authService := service.NewAuthService(queries, cfg.Auth)
 	documentService := service.NewDocumentService(
 		pgxPool,
@@ -64,11 +66,13 @@ func Run() error {
 		fileStorage,
 	)
 
+	// Создаём кеш для готовых ответов.
 	responseCache := cache.New(
 		cfg.Cache.MaxEntries,
 		cfg.Cache.MaxBytes,
 	)
 
+	// Создаём обработчики HTTP-запросов.
 	h := handlers.New(
 		authService,
 		documentService,

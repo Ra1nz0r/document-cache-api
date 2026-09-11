@@ -5,28 +5,29 @@ import "sync"
 // Key определяет кешируемый запрос.
 // Пустой DocumentID означает список документов.
 type Key struct {
-	UserID     string
-	DocumentID string
-	Query      string
+	UserID     string // ID пользователя
+	DocumentID string // ID документа
+	Query      string // Поисковый запрос
 }
 
 // Response содержит готовый ответ из кеша.
 type Response struct {
-	ContentType string
-	Body        string
-	NoSniff     bool
+	ContentType string // MIME-тип ответа
+	Body        string // Тело ответа
+	NoSniff     bool   // true, если нужно добавить заголовок X-Content-Type-Options: nosniff
 }
 
 type Cache struct {
-	mu sync.RWMutex
+	mu sync.RWMutex // Защищает items, bytes и generation.
 
-	items      map[Key]Response
-	bytes      int64
-	maxEntries int
-	maxBytes   int64
-	generation uint64
+	items      map[Key]Response // Кешированные ответы.
+	bytes      int64            // Текущий суммарный размер закешированных тел ответов.
+	maxEntries int              // Максимальное количество записей.
+	maxBytes   int64            // Максимальный суммарный размер закешированных тел ответов.
+	generation uint64           // Номер текущей версии кеша. Увеличивается при Invalidate.
 }
 
+// New создаёт новый кеш с указанными лимитами.
 func New(maxEntries int, maxBytes int64) *Cache {
 	return &Cache{
 		items:      make(map[Key]Response),
@@ -40,7 +41,9 @@ func (c *Cache) Get(key Key) (Response, uint64, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	// Возвращаем копию, чтобы внешний код не мог изменить кеш.
 	response, ok := c.items[key]
+
 	return response, c.generation, ok
 }
 
@@ -49,12 +52,14 @@ func (c *Cache) Set(key Key, response Response, generation uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Не даём старому запросу записать результат после инвалидации.
 	if generation != c.generation {
 		return
 	}
 
 	size := int64(len(response.Body))
 
+	// Не сохраняем слишком большие ответы или при нулевых лимитах.
 	if c.maxEntries <= 0 || c.maxBytes <= 0 || size > c.maxBytes {
 		return
 	}
